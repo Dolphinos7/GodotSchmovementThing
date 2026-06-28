@@ -16,11 +16,19 @@ sky = SubResource("Sky_0maeq")
 [node name="Node3D" type="Node3D" unique_id=1622552029]
 
 [node name="StartingPlatform" type="CSGBox3D" parent="." unique_id=1585047234]
-transform = Transform3D(10, 0, 0, 0, 1, 0, 0, 0, 10, 0, 6.7852335, 0)
+transform = Transform3D(10, 0, 0, 0, 1, 0, 0, 0, 151.35776, 0, 6.7852335, 0)
+use_collision = true
+
+[node name="StartingPlatform2" type="CSGBox3D" parent="." unique_id=998609187]
+transform = Transform3D(-0.01745386, 0.9999984, 0, -9.999985, -0.0017453859, 0, 0, 0, 151.35774, 4.286783, 6.7852335, 0)
 use_collision = true
 
 [node name="Ramp1" type="CSGBox3D" parent="." unique_id=1830246044]
 transform = Transform3D(10, 0, 0, 0, 0.5284383, 8.489717, 0, -0.84897166, 5.2843833, -13.408764, 5.3094645, 3.2776985)
+use_collision = true
+
+[node name="Ramp4" type="CSGBox3D" parent="." unique_id=645301887]
+transform = Transform3D(10, 0, 0, 0, -4.371139e-08, -10, 0, 1, -4.371139e-07, -13.408764, 5.3094645, -5.2013836)
 use_collision = true
 
 [node name="Ramp2" type="CSGBox3D" parent="." unique_id=87222236]
@@ -45,3 +53,9 @@ environment = SubResource("Environment_gvi02")
 
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=716343182]
 transform = Transform3D(1, 0, 0, 0, -4.371139e-08, 1, 0, -1, -4.371139e-08, 0, 16.21684, 0.0064697266)
+
+[node name="CanvasLayer" type="CanvasLayer" parent="." unique_id=1587303332]
+
+[node name="DebugText" type="Label" parent="CanvasLayer" unique_id=1367808577]
+offset_right = 50.0
+offset_bottom = 23.0

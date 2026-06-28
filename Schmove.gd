@@ -1,12 +1,17 @@
 extends CharacterBody3D
 
+@onready var debug_label: Label = $"../CanvasLayer/DebugText"
+
 var mouse_sens = 0.3
 var camera_anglev=0
 const SPEED = 5.0
-const JUMP_VELOCITY = 4.5
+const JUMP_VELOCITY = 9.0
 const AIR_ACCEL = 20.0
 const AIR_MAX_SPEED = 20.0
-const RAMP_BOOST_SPEED = 14.0
+const RAMP_BOOST_MIN_SPEED = 3.0
+const RAMP_BOOST_ACCEL = 30.0
+const RAMP_BOOST_MAX_SPEED = 20.0
+const RAMP_HOLD_ALIGNMENT_MIN = 0.1
 
 # Called when the node enters the scene tree for the first time.
 func _ready() -> void:
@@ -48,14 +53,6 @@ func _physics_process(delta: float) -> void:
 	if input_dir:
 		air_wish_dir = (camera_basis * Vector3(input_dir.x, 0, input_dir.y)).normalized()
 
-	# Ramp-boost wish direction always points where the camera is facing,
-	# ignoring strafe - so holding A/D into a ramp while looking forward still
-	# boosts you forward, like pushing into a CS surf ramp. Only used by the
-	# ramp boost check below, not general air movement.
-	var ramp_wish_dir := Vector3.ZERO
-	if input_dir:
-		ramp_wish_dir = -camera_basis.z
-
 	if is_on_floor():
 		if direction:
 			velocity.x = direction.x * SPEED
@@ -67,7 +64,7 @@ func _physics_process(delta: float) -> void:
 		_air_accelerate(air_wish_dir, delta)
 
 	move_and_slide()
-	_apply_ramp_boost(ramp_wish_dir)
+	_apply_ramp_boost(air_wish_dir, delta)
 
 func _air_accelerate(wish_dir: Vector3, delta: float) -> void:
 	if not wish_dir:
@@ -76,18 +73,45 @@ func _air_accelerate(wish_dir: Vector3, delta: float) -> void:
 	var add_speed: float = clamp(AIR_MAX_SPEED - current_speed, 0.0, AIR_ACCEL * delta)
 	velocity += wish_dir * add_speed
 
-func _apply_ramp_boost(wish_dir: Vector3) -> void:
+func _apply_ramp_boost(wish_dir: Vector3, delta: float) -> void:
+	debug_label.text = "Ramp Boost: OFF"
 	if not wish_dir:
-		return
+		return # not holding any key at all - never boost
+
 	for i in get_slide_collision_count():
 		var collision := get_slide_collision(i)
 		var normal := collision.get_normal()
 		if normal.angle_to(Vector3.UP) <= floor_max_angle:
 			continue # walkable floor, not a ramp face
 
-		# Push along the ramp surface in the camera-forward direction, whether
-		# the ramp is dead ahead or off to the side - no longer requires facing
-		# directly into it.
-		var along_ramp: Vector3 = (wish_dir - normal * wish_dir.dot(normal)).normalized()
-		velocity = along_ramp * RAMP_BOOST_SPEED
+		# How directly your held input pushes into this surface, measured
+		# horizontally only - the ramp's own incline angle is intentionally
+		# excluded, so a 60-degree ramp and a 90-degree wall feel the same
+		# when you're facing toward them. 0 = purely along it, 1 = dead-on.
+		var flat_wish: Vector3 = Vector3(wish_dir.x, 0, wish_dir.z)
+		var flat_normal: Vector3 = Vector3(normal.x, 0, normal.z)
+		if not flat_wish or not flat_normal:
+			continue
+		var align: float = flat_wish.normalized().dot(-flat_normal.normalized())
+		if align <= RAMP_HOLD_ALIGNMENT_MIN:
+			continue
+
+		# Damp existing vertical velocity toward zero, in proportion to how
+		# perpendicular you're pushing - fully perpendicular zeroes it
+		# outright regardless of how fast you were already falling.
+		velocity.y = lerp(velocity.y, 0.0, align)
+
+		# Redirect velocity along the ramp surface, then accelerate it toward
+		# RAMP_BOOST_MAX_SPEED a little each tick - staying on the ramp longer
+		# keeps building speed, but it levels off instead of compounding.
+		var along_ramp: Vector3 = velocity - normal * velocity.dot(normal)
+		var speed: float = along_ramp.length()
+		if speed < RAMP_BOOST_MIN_SPEED:
+			debug_label.text = "Ramp Boost: ON (holding, align %.2f)" % align
+			break
+
+		var dir: Vector3 = along_ramp / speed
+		var add_speed: float = clamp(RAMP_BOOST_MAX_SPEED - speed, 0.0, RAMP_BOOST_ACCEL * delta)
+		velocity = dir * (speed + add_speed)
+		debug_label.text = "Ramp Boost: ON (%.1f m/s, align %.2f)" % [speed + add_speed, align]
 		break

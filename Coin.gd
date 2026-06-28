@@ -12,11 +12,11 @@ func _on_body_entered(body: Node3D) -> void:
 		_collect()
 
 func _collect() -> void:
-	monitoring = false
+	set_deferred("monitoring", false)
 	visible = false
 
 # Called by the player on respawn (see Schmove.gd) so the coin is available
 # again on the next attempt instead of staying grabbed forever.
 func reset() -> void:
-	monitoring = true
+	set_deferred("monitoring", true)
 	visible = true

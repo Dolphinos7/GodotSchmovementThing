@@ -1,0 +1,47 @@
+[gd_scene format=3 uid="uid://bly1keom2o7e"]
+
+[ext_resource type="Script" uid="uid://bhcqaag0xc0" path="res://Schmove.gd" id="1_a202f"]
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_gvi02"]
+
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_2bumg"]
+
+[sub_resource type="Sky" id="Sky_0maeq"]
+sky_material = SubResource("ProceduralSkyMaterial_2bumg")
+
+[sub_resource type="Environment" id="Environment_gvi02"]
+background_mode = 2
+sky = SubResource("Sky_0maeq")
+
+[node name="Node3D" type="Node3D" unique_id=1622552029]
+
+[node name="StartingPlatform" type="CSGBox3D" parent="." unique_id=1585047234]
+transform = Transform3D(10, 0, 0, 0, 1, 0, 0, 0, 10, 0, 6.7852335, 0)
+use_collision = true
+
+[node name="Ramp1" type="CSGBox3D" parent="." unique_id=1830246044]
+transform = Transform3D(10, 0, 0, 0, 0.5284383, 8.489717, 0, -0.84897166, 5.2843833, -13.408764, 5.3094645, 3.2776985)
+use_collision = true
+
+[node name="Ramp2" type="CSGBox3D" parent="." unique_id=87222236]
+transform = Transform3D(40, 0, 0, 0, 0.5284383, -8.489717, 0, 0.84897166, 5.2843833, -42.216515, -4.179264, -4.137393)
+use_collision = true
+
+[node name="Ramp3" type="CSGBox3D" parent="." unique_id=1471493043]
+transform = Transform3D(25.871592, 0.7626684, 0, -16.120928, 0.34178853, -8.489717, -25.899353, 0.5491062, 5.2843833, -78.536, 1.9344425, 8.447)
+use_collision = true
+
+[node name="Schmeep" type="CharacterBody3D" parent="." unique_id=1731043971]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 9.585303, 0)
+script = ExtResource("1_a202f")
+
+[node name="SchmeepHitbox" type="CollisionShape3D" parent="Schmeep" unique_id=1062686963]
+shape = SubResource("CapsuleShape3D_gvi02")
+
+[node name="Schmeepera" type="Camera3D" parent="Schmeep" unique_id=1696324616]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=1518288009]
+environment = SubResource("Environment_gvi02")
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=716343182]
+transform = Transform3D(1, 0, 0, 0, -4.371139e-08, 1, 0, -1, -4.371139e-08, 0, 16.21684, 0.0064697266)

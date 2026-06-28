@@ -1,5 +1,28 @@
 extends CharacterBody3D
 
+enum State { GROUNDED, AIRBORNE }
+
+# --- Tunables ---------------------------------------------------------------
+
+const SPEED = 5.0 # base ground walk speed
+const JUMP_VELOCITY = 6.0 # upward velocity applied on jump - tuned down so bouncing off a ramp clearly beats it
+const DOUBLE_JUMP_VELOCITY = 9.0 # upward velocity applied on the one extra airborne jump
+
+const AIR_ACCEL = 300.0 # how sharply turning redirects air velocity - surf servers crank this way up from Source's strict default for fast, sharp turns
+const AIR_STRAFE_SPEED = 1.5 # cap on holding a static direction in air - must keep turning to gain more than this
+
+const DASH_SPEED = 12.0 # velocity impulse added in the dash direction
+const DASH_COOLDOWN = 3.0 # seconds before dash can be used again
+
+const GROUND_FRICTION = 8.0 # rate excess ground speed (from a dash) bleeds toward SPEED while sliding
+const SLIDE_DURATION = 1.5 # seconds a slide stays active once triggered
+const SLIDE_COOLDOWN = 2.0 # seconds before slide can be triggered again
+const SLIDE_BUFFER_WINDOW = 0.5 # seconds an airborne slide press stays buffered, waiting for you to land
+
+const RAMP_BOUNCE_MULTIPLIER = 2.0 # scales a surface's exported "bounce" value (see RampSurface.gd) into the restitution used in _bounce_off_ramps
+
+# --- Node references ---------------------------------------------------------
+
 @onready var debug_label: Label = $"../CanvasLayer/DebugText"
 
 # Built at runtime in _ready() instead of placed in the scene file - avoids
@@ -9,83 +32,44 @@ var slide_tint: ColorRect
 var slide_cooldown_label: Label
 var dash_cooldown_label: Label
 
-enum State { GROUNDED, AIRBORNE }
+# --- Runtime state -------------------------------------------------------------
 
-var mouse_sens = 0.3
-var camera_anglev=0
 var state: State = State.AIRBORNE
-var debug_wish_dir := Vector3.ZERO
 
-const SPEED = 5.0 # base ground walk speed
-const JUMP_VELOCITY = 6.0 # upward velocity applied on jump - tuned down so bouncing off a ramp clearly beats it
-const DOUBLE_JUMP_VELOCITY = 9.0 # upward velocity applied on the one extra airborne jump
-const AIR_ACCEL = 300.0 # how sharply turning redirects air velocity - surf servers crank this way up from Source's strict default for fast, sharp turns
-const AIR_STRAFE_SPEED = 1.5 # cap on holding a static direction in air - must keep turning to gain more than this
-const DASH_SPEED = 12.0 # velocity impulse added in the dash direction
-const DASH_COOLDOWN = 3.0 # seconds before dash can be used again
-const GROUND_FRICTION = 8.0 # rate excess ground speed (from a dash) bleeds toward SPEED while sliding
-const SLIDE_DURATION = 1.5 # seconds a slide stays active once triggered
-const SLIDE_COOLDOWN = 2.0 # seconds before slide can be triggered again
-const SLIDE_BUFFER_WINDOW = 0.5 # seconds an airborne slide press stays buffered, waiting for you to land
-const RAMP_BOUNCE_MULTIPLIER = 2.0 # scales a surface's PhysicsMaterial bounce (0-1, set per ramp in the Inspector) into the restitution used below
+var mouse_sens := 0.3
+var camera_anglev := 0.0
 
 var dash_cooldown := 0.0
 var can_air_dash := true
 var can_double_jump := true
+
 var is_sliding := false
 var slide_time_remaining := 0.0
 var slide_cooldown := 0.0
 var slide_buffer_time_remaining := 0.0
 
-# Called when the node enters the scene tree for the first time.
+var debug_wish_dir := Vector3.ZERO
+
+# --- Lifecycle -----------------------------------------------------------------
+
 func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	_build_slide_ui()
 
-func _build_slide_ui() -> void:
-	var canvas_layer: CanvasLayer = $"../CanvasLayer"
-
-	slide_tint = ColorRect.new()
-	slide_tint.color = Color(0.0, 1.0, 0.0, 0.0)
-	slide_tint.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	slide_tint.set_anchors_preset(Control.PRESET_FULL_RECT)
-	canvas_layer.add_child(slide_tint)
-
-	slide_cooldown_label = Label.new()
-	slide_cooldown_label.text = "SLIDE READY"
-	slide_cooldown_label.add_theme_font_size_override("font_size", 24)
-	slide_cooldown_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	slide_cooldown_label.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	slide_cooldown_label.position = Vector2(-80.0, 20.0)
-	slide_cooldown_label.size = Vector2(160.0, 30.0)
-	canvas_layer.add_child(slide_cooldown_label)
-
-	dash_cooldown_label = Label.new()
-	dash_cooldown_label.text = "DASH READY"
-	dash_cooldown_label.add_theme_font_size_override("font_size", 24)
-	dash_cooldown_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	dash_cooldown_label.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	dash_cooldown_label.position = Vector2(-80.0, 50.0)
-	dash_cooldown_label.size = Vector2(160.0, 30.0)
-	canvas_layer.add_child(dash_cooldown_label)
-
-# Called every frame. 'delta' is the elapsed time since the previous frame.
-func _process(delta: float) -> void:
-	pass
-
-func _input(event):
-	if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
-		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+func _input(event: InputEvent) -> void:
+	if event is InputEventKey:
+		var key_event := event as InputEventKey
+		if key_event.pressed and key_event.keycode == KEY_ESCAPE:
+			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	if event is InputEventMouseMotion:
-		self.rotate_y(deg_to_rad(-event.relative.x*mouse_sens))
-		var changev=-event.relative.y*mouse_sens
-		if camera_anglev+changev>-50 and camera_anglev+changev<50:
-			camera_anglev+=changev
+		var mouse_event := event as InputEventMouseMotion
+		self.rotate_y(deg_to_rad(-mouse_event.relative.x * mouse_sens))
+		var changev := -mouse_event.relative.y * mouse_sens
+		if camera_anglev + changev > -50 and camera_anglev + changev < 50:
+			camera_anglev += changev
 			$Schmeepera.rotate_x(deg_to_rad(changev))
 
 func _physics_process(delta: float) -> void:
-	# Get the input direction.
-	# As good practice, you should replace UI actions with custom gameplay actions.
 	var input_dir := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
 
 	# Wish direction follows your held key combo rotated by view yaw only -
@@ -124,6 +108,8 @@ func _physics_process(delta: float) -> void:
 	_update_debug_label()
 	_update_slide_ui()
 
+# --- State machine ---------------------------------------------------------------
+
 func _update_state() -> void:
 	var was_grounded: bool = state == State.GROUNDED
 	if is_on_floor():
@@ -136,32 +122,6 @@ func _update_state() -> void:
 			_start_slide()
 	else:
 		state = State.AIRBORNE
-
-func _handle_slide(delta: float) -> void:
-	slide_cooldown = max(slide_cooldown - delta, 0.0)
-	slide_buffer_time_remaining = max(slide_buffer_time_remaining - delta, 0.0)
-
-	if Input.is_action_just_pressed("slide"):
-		if state == State.GROUNDED:
-			_start_slide()
-		else:
-			# Not grounded yet - buffer the press so landing within the
-			# window triggers it automatically, instead of the press just
-			# being dropped.
-			slide_buffer_time_remaining = SLIDE_BUFFER_WINDOW
-
-	if is_sliding:
-		slide_time_remaining -= delta
-		if slide_time_remaining <= 0.0 or state == State.AIRBORNE:
-			is_sliding = false
-
-func _start_slide() -> void:
-	if slide_cooldown > 0.0:
-		return
-	is_sliding = true
-	slide_time_remaining = SLIDE_DURATION
-	slide_cooldown = SLIDE_COOLDOWN
-	slide_buffer_time_remaining = 0.0
 
 func _process_grounded(direction: Vector3, delta: float) -> void:
 	var horizontal_speed: float = Vector2(velocity.x, velocity.z).length()
@@ -205,6 +165,8 @@ func _air_accelerate(wish_dir: Vector3, delta: float) -> void:
 	var accel_speed: float = min(AIR_ACCEL * AIR_STRAFE_SPEED * delta, add_speed)
 	velocity += wish_dir * accel_speed
 
+# --- Abilities ------------------------------------------------------------------
+
 func _try_dash(wish_dir: Vector3, camera_basis: Basis, delta: float) -> void:
 	dash_cooldown = max(dash_cooldown - delta, 0.0)
 	if dash_cooldown > 0.0:
@@ -232,6 +194,32 @@ func _try_dash(wish_dir: Vector3, camera_basis: Basis, delta: float) -> void:
 	if state == State.AIRBORNE:
 		can_air_dash = false
 
+func _handle_slide(delta: float) -> void:
+	slide_cooldown = max(slide_cooldown - delta, 0.0)
+	slide_buffer_time_remaining = max(slide_buffer_time_remaining - delta, 0.0)
+
+	if Input.is_action_just_pressed("slide"):
+		if state == State.GROUNDED:
+			_start_slide()
+		else:
+			# Not grounded yet - buffer the press so landing within the
+			# window triggers it automatically, instead of the press just
+			# being dropped.
+			slide_buffer_time_remaining = SLIDE_BUFFER_WINDOW
+
+	if is_sliding:
+		slide_time_remaining -= delta
+		if slide_time_remaining <= 0.0 or state == State.AIRBORNE:
+			is_sliding = false
+
+func _start_slide() -> void:
+	if slide_cooldown > 0.0:
+		return
+	is_sliding = true
+	slide_time_remaining = SLIDE_DURATION
+	slide_cooldown = SLIDE_COOLDOWN
+	slide_buffer_time_remaining = 0.0
+
 func _bounce_off_ramps() -> void:
 	# Only bounces off ramps you fly into from the air - state here still
 	# reflects whatever you were in at the start of this frame, before the
@@ -254,10 +242,9 @@ func _bounce_off_ramps() -> void:
 		if into_normal_speed >= 0.0:
 			continue # already moving away from it, nothing to bounce
 
-		# Bounciness comes from a "bounce" value exported on whatever you hit
-		# (see RampSurface.gd) instead of one global value - level builders
-		# attach that script and set bounce per ramp. Anything without it
-		# (or with bounce left at 0) just doesn't bounce.
+		# Bounciness comes from a "bounce" value exported on whatever you
+		# hit (see RampSurface.gd) - level builders attach that script and
+		# set bounce per ramp. Anything without it just doesn't bounce.
 		var bounce: float = 0.0
 		var collider: Object = collision.get_collider()
 		if collider:
@@ -269,6 +256,35 @@ func _bounce_off_ramps() -> void:
 
 		velocity -= normal * into_normal_speed * (1.0 + bounce * RAMP_BOUNCE_MULTIPLIER)
 		break
+
+# --- UI / debug --------------------------------------------------------------------
+
+func _build_slide_ui() -> void:
+	var canvas_layer: CanvasLayer = $"../CanvasLayer"
+
+	slide_tint = ColorRect.new()
+	slide_tint.color = Color(0.0, 1.0, 0.0, 0.0)
+	slide_tint.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	slide_tint.set_anchors_preset(Control.PRESET_FULL_RECT)
+	canvas_layer.add_child(slide_tint)
+
+	slide_cooldown_label = Label.new()
+	slide_cooldown_label.text = "SLIDE READY"
+	slide_cooldown_label.add_theme_font_size_override("font_size", 24)
+	slide_cooldown_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	slide_cooldown_label.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	slide_cooldown_label.position = Vector2(-80.0, 20.0)
+	slide_cooldown_label.size = Vector2(160.0, 30.0)
+	canvas_layer.add_child(slide_cooldown_label)
+
+	dash_cooldown_label = Label.new()
+	dash_cooldown_label.text = "DASH READY"
+	dash_cooldown_label.add_theme_font_size_override("font_size", 24)
+	dash_cooldown_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	dash_cooldown_label.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	dash_cooldown_label.position = Vector2(-80.0, 50.0)
+	dash_cooldown_label.size = Vector2(160.0, 30.0)
+	canvas_layer.add_child(dash_cooldown_label)
 
 func _held_keys_string() -> String:
 	var keys: Array[String] = []

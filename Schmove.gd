@@ -8,7 +8,7 @@ const SPEED = 5.0 # base ground walk speed
 const JUMP_VELOCITY = 6.0 # upward velocity applied on jump - tuned down so bouncing off a ramp clearly beats it
 const DOUBLE_JUMP_VELOCITY = 9.0 # upward velocity applied on the one extra airborne jump
 
-const AIR_ACCEL = 300.0 # how sharply turning redirects air velocity - surf servers crank this way up from Source's strict default for fast, sharp turns
+const AIR_ACCEL = 200.0 # how sharply turning redirects air velocity - surf servers crank this way up from Source's strict default for fast, sharp turns
 const AIR_STRAFE_SPEED = 1.5 # cap on holding a static direction in air - must keep turning to gain more than this
 
 const DASH_SPEED = 12.0 # velocity impulse added in the dash direction
@@ -18,8 +18,13 @@ const GROUND_FRICTION = 8.0 # rate excess ground speed (from a dash) bleeds towa
 const SLIDE_DURATION = 1.5 # seconds a slide stays active once triggered
 const SLIDE_COOLDOWN = 2.0 # seconds before slide can be triggered again
 const SLIDE_BUFFER_WINDOW = 0.5 # seconds an airborne slide press stays buffered, waiting for you to land
+const SLIDE_STEER_RATE = 2.0 # how fast a slide's direction can turn toward held input while above SPEED - magnitude is handled separately by GROUND_FRICTION
 
 const RAMP_BOUNCE_MULTIPLIER = 2.0 # scales a surface's exported "bounce" value (see RampSurface.gd) into the restitution used in _bounce_off_ramps
+
+const FALL_RESPAWN_Y = -50.0 # world Y below which you respawn at the start instead of falling forever
+
+const FLOOR_MAX_ANGLE_DEGREES = 45.0 # surfaces steeper than this count as a ramp (AIRBORNE/bounce), not walkable floor
 
 # --- Node references ---------------------------------------------------------
 
@@ -31,10 +36,12 @@ const RAMP_BOUNCE_MULTIPLIER = 2.0 # scales a surface's exported "bounce" value 
 var slide_tint: ColorRect
 var slide_cooldown_label: Label
 var dash_cooldown_label: Label
+var timer_label: Label
 
 # --- Runtime state -------------------------------------------------------------
 
 var state: State = State.AIRBORNE
+var respawn_position := Vector3.ZERO
 
 var mouse_sens := 0.3
 var camera_anglev := 0.0
@@ -50,11 +57,17 @@ var slide_buffer_time_remaining := 0.0
 
 var debug_wish_dir := Vector3.ZERO
 
+var run_time := 0.0
+var best_time := -1.0 # -1 means no completed run yet
+var last_run_time := -1.0
+
 # --- Lifecycle -----------------------------------------------------------------
 
 func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
-	_build_slide_ui()
+	floor_max_angle = deg_to_rad(FLOOR_MAX_ANGLE_DEGREES)
+	respawn_position = global_position
+	_build_hud()
 
 func _input(event: InputEvent) -> void:
 	if event is InputEventKey:
@@ -70,6 +83,12 @@ func _input(event: InputEvent) -> void:
 			$Schmeepera.rotate_x(deg_to_rad(changev))
 
 func _physics_process(delta: float) -> void:
+	if global_position.y < FALL_RESPAWN_Y:
+		_respawn()
+		return
+
+	run_time += delta
+
 	var input_dir := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
 
 	# Wish direction follows your held key combo rotated by view yaw only -
@@ -106,7 +125,7 @@ func _physics_process(delta: float) -> void:
 	move_and_slide()
 	_bounce_off_ramps()
 	_update_debug_label()
-	_update_slide_ui()
+	_update_hud()
 
 # --- State machine ---------------------------------------------------------------
 
@@ -123,23 +142,57 @@ func _update_state() -> void:
 	else:
 		state = State.AIRBORNE
 
+func _respawn() -> void:
+	global_position = respawn_position
+	velocity = Vector3.ZERO
+	state = State.AIRBORNE
+	can_air_dash = true
+	can_double_jump = true
+	is_sliding = false
+	dash_cooldown = 0.0
+	slide_cooldown = 0.0
+	slide_time_remaining = 0.0
+	slide_buffer_time_remaining = 0.0
+	run_time = 0.0
+	get_tree().call_group("coins", "reset")
+
+# Called by FinishLine.gd when the player enters the finish trigger area.
+func finish_run() -> void:
+	last_run_time = run_time
+	if best_time < 0.0 or run_time < best_time:
+		best_time = run_time
+	_respawn()
+
+# Called by Obstacle.gd (positive seconds) and Coin.gd (negative seconds).
+func add_time_penalty(seconds: float) -> void:
+	run_time = max(run_time + seconds, 0.0)
+
 func _process_grounded(direction: Vector3, delta: float) -> void:
 	var horizontal_speed: float = Vector2(velocity.x, velocity.z).length()
 	var target_speed: float = SPEED if direction else 0.0
 
 	var new_speed: float
+	var horizontal_dir: Vector3
 	if not is_sliding or horizontal_speed <= SPEED:
 		# Normal walking/stopping - snap straight to target, same as before.
 		# Also applies if you're carrying excess speed but aren't sliding -
 		# that's what makes dashing without sliding a non-event on the ground.
 		new_speed = target_speed
+		horizontal_dir = direction if direction else Vector3(velocity.x, 0, velocity.z).normalized()
 	else:
 		# Sliding and carrying more speed than base walk allows (e.g. just
-		# dashed) - bleed the excess off gradually via friction instead of
-		# snapping back down to walk speed instantly.
+		# dashed, or just landed carrying air speed) - bleed the excess off
+		# gradually via friction, and steer gradually too instead of
+		# snapping your whole momentum onto whatever you're holding in one
+		# frame (that snap is what caused the fling-on-landing bug).
 		new_speed = move_toward(horizontal_speed, target_speed, GROUND_FRICTION * delta)
+		var current_dir: Vector3 = Vector3(velocity.x, 0, velocity.z).normalized()
+		if direction:
+			var steer_weight: float = clamp(SLIDE_STEER_RATE * delta, 0.0, 1.0)
+			horizontal_dir = current_dir.slerp(direction, steer_weight)
+		else:
+			horizontal_dir = current_dir
 
-	var horizontal_dir: Vector3 = direction if direction else Vector3(velocity.x, 0, velocity.z).normalized()
 	velocity.x = horizontal_dir.x * new_speed
 	velocity.z = horizontal_dir.z * new_speed
 
@@ -259,8 +312,17 @@ func _bounce_off_ramps() -> void:
 
 # --- UI / debug --------------------------------------------------------------------
 
-func _build_slide_ui() -> void:
+func _build_hud() -> void:
 	var canvas_layer: CanvasLayer = $"../CanvasLayer"
+
+	timer_label = Label.new()
+	timer_label.text = "Time: 0.00s"
+	timer_label.add_theme_font_size_override("font_size", 24)
+	timer_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	timer_label.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	timer_label.position = Vector2(-240.0, 20.0)
+	timer_label.size = Vector2(220.0, 80.0)
+	canvas_layer.add_child(timer_label)
 
 	slide_tint = ColorRect.new()
 	slide_tint.color = Color(0.0, 1.0, 0.0, 0.0)
@@ -314,7 +376,7 @@ func _update_debug_label() -> void:
 		State.AIRBORNE:
 			debug_label.text = "State: AIRBORNE\n%s\n%s" % [input_line, slide_line]
 
-func _update_slide_ui() -> void:
+func _update_hud() -> void:
 	slide_tint.color = Color(0.0, 1.0, 0.0, 0.18 if is_sliding else 0.0)
 
 	if slide_cooldown <= 0.0:
@@ -326,3 +388,10 @@ func _update_slide_ui() -> void:
 		dash_cooldown_label.text = "DASH READY"
 	else:
 		dash_cooldown_label.text = "DASH: %.1fs" % dash_cooldown
+
+	var timer_text: String = "Time: %.2fs" % run_time
+	if best_time >= 0.0:
+		timer_text += "\nBest: %.2fs" % best_time
+	if last_run_time >= 0.0:
+		timer_text += "\nLast: %.2fs" % last_run_time
+	timer_label.text = timer_text

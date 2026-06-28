@@ -2,13 +2,13 @@
 
 [ext_resource type="Script" uid="uid://bhcqaag0xc0" path="res://Schmove.gd" id="1_a202f"]
 [ext_resource type="Shader" uid="uid://drgt6641jf3ph" path="res://node_3d.gdshader" id="1_noarx"]
-[ext_resource type="Script" path="res://RampSurface.gd" id="2_rampsurface"]
+[ext_resource type="Script" uid="uid://dggcuklx1q0b8" path="res://RampSurface.gd" id="2_rampsurface"]
+[ext_resource type="Script" uid="uid://dbb8g3d8yw1ex" path="res://FinishLine.gd" id="4_r3fl7"]
+[ext_resource type="Script" uid="uid://rkxhamp1fin4" path="res://Coin.gd" id="5_jka67"]
+[ext_resource type="Script" uid="uid://orwqgclegg50" path="res://Obstacle.gd" id="6_i5arm"]
+[ext_resource type="Shader" uid="uid://dl5h6n57m163y" path="res://trigger_glow.gdshader" id="6_wc5p8"]
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_noarx"]
-render_priority = 0
-shader = ExtResource("1_noarx")
-
-[sub_resource type="ShaderMaterial" id="ShaderMaterial_a0tk4"]
 render_priority = 0
 shader = ExtResource("1_noarx")
 
@@ -23,82 +23,71 @@ sky_material = SubResource("ProceduralSkyMaterial_2bumg")
 background_mode = 2
 sky = SubResource("Sky_0maeq")
 
+[sub_resource type="BoxShape3D" id="BoxShape3D_r3fl7"]
+
+[sub_resource type="SphereShape3D" id="SphereShape3D_r3fl7"]
+
+[sub_resource type="SphereMesh" id="SphereMesh_lrbwi"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_jqnhf"]
+render_priority = 0
+shader = ExtResource("6_wc5p8")
+shader_parameter/glow_color = Color(1, 0.85, 0.2, 1)
+shader_parameter/base_alpha = 0.12
+shader_parameter/rim_alpha = 0.7
+shader_parameter/pulse_speed = 2.0
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_lrbwi"]
+size = Vector3(1, 1, 1.0043945)
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_wc5p8"]
+render_priority = 0
+shader = ExtResource("6_wc5p8")
+shader_parameter/glow_color = Color(1, 0.14901961, 0.14901961, 1)
+shader_parameter/base_alpha = 0.12
+shader_parameter/rim_alpha = 0.7
+shader_parameter/pulse_speed = 2.0
+
+[sub_resource type="BoxMesh" id="BoxMesh_lrbwi"]
+material = SubResource("ShaderMaterial_wc5p8")
+size = Vector3(1, 1, 1.0146484)
+
 [node name="Node3D" type="Node3D" unique_id=1622552029]
 
-[node name="StartingPlatform" type="CSGBox3D" parent="." unique_id=1585047234]
-transform = Transform3D(10, 0, 0, 0, 1, 0, 0, 0, 151.35776, 0, 6.7852335, 0)
+[node name="Spawn" type="CSGBox3D" parent="." unique_id=1380808051]
+transform = Transform3D(10, 0, 0, 0, 1, 0, 0, 0, 10, 0, 6.7852335, 0)
 use_collision = true
+size = Vector3(0.89453125, 1, 1)
 material = SubResource("ShaderMaterial_noarx")
-
-[node name="StartingPlatform3" type="CSGBox3D" parent="." unique_id=718337179]
-transform = Transform3D(-1.0998204, 0, -993.93353, 0, 1, 0, 9.939336, 0, -109.98203, -493.89655, 5.221443, 28.155228)
-use_collision = true
-material = SubResource("ShaderMaterial_noarx")
-
-[node name="StartingPlatform2" type="CSGBox3D" parent="." unique_id=998609187]
-transform = Transform3D(-0.0010089976, 0.05780927, 151.10461, 0.2060235, -0.99811554, 8.748338, 9.997877, 0.02057372, -0.16502436, 33.460884, 9.262046, -26.96843)
-use_collision = true
-material = SubResource("ShaderMaterial_noarx")
-
-[node name="Ramp1" type="CSGBox3D" parent="." unique_id=1830246044]
-transform = Transform3D(10, 0, 0, 0, 0.5284383, 8.489717, 0, -0.84897166, 5.2843833, -13.408764, 5.3094645, 3.2776985)
 script = ExtResource("2_rampsurface")
-use_collision = true
-material = SubResource("ShaderMaterial_noarx")
 
-[node name="Ramp7" type="CSGBox3D" parent="." unique_id=1949275128]
-transform = Transform3D(10, 0, 0, 0, 0.5284383, 8.489717, 0, -0.84897166, 5.2843833, -87.540436, 81.511154, -13.743711)
-script = ExtResource("2_rampsurface")
+[node name="BridgeSide1" type="CSGBox3D" parent="." unique_id=2069496280]
+transform = Transform3D(54.775665, 0, 0, 0, 1, 0, 0, 0, 10, -27.936087, 6.7852335, 0)
 use_collision = true
+size = Vector3(0.89453125, 1, 1)
 material = SubResource("ShaderMaterial_noarx")
-
-[node name="Ramp8" type="CSGBox3D" parent="." unique_id=1440138390]
-transform = Transform3D(10, 0, 0, 0, 0.5284383, 8.489717, 0, -0.84897166, 5.2843833, -47.111977, 54.555428, 18.920368)
 script = ExtResource("2_rampsurface")
+
+[node name="BridgeSide2" type="CSGBox3D" parent="." unique_id=1232573793]
+transform = Transform3D(50, 0, 0, 0, 1, 0, 0, 0, 10, -123.31379, 6.7852335, 0)
 use_collision = true
+size = Vector3(0.89453125, 1, 1)
 material = SubResource("ShaderMaterial_noarx")
-
-[node name="Ramp9" type="CSGBox3D" parent="." unique_id=1181203791]
-transform = Transform3D(10, 0, 0, 0, 0.5284383, 8.489717, 0, -0.84897166, 5.2843833, -27.88308, 41.873966, -18.635696)
 script = ExtResource("2_rampsurface")
+
+[node name="BridgeUp1" type="CSGBox3D" parent="." unique_id=1906094794]
+transform = Transform3D(10.606602, 0.7071067, 0, -10.606602, 0.7071067, 0, 0, 0, 10, -56.703766, 11.7852335, 0)
 use_collision = true
+size = Vector3(0.89453125, 1, 1)
 material = SubResource("ShaderMaterial_noarx")
-
-[node name="Ramp10" type="CSGBox3D" parent="." unique_id=761933598]
-transform = Transform3D(10, 0, 0, 0, 0.5284383, 8.489717, 0, -0.84897166, 5.2843833, -13.408764, 26.34232, 3.2776985)
 script = ExtResource("2_rampsurface")
+
+[node name="BridgeUp2" type="CSGBox3D" parent="." unique_id=1853699785]
+transform = Transform3D(10.606602, -0.70710677, 0, 10.606602, 0.70710677, 0, 0, 0, 10, -95.9924, 11.7852335, 0)
 use_collision = true
+size = Vector3(0.89453125, 1, 1)
 material = SubResource("ShaderMaterial_noarx")
-
-[node name="Ramp11" type="CSGBox3D" parent="." unique_id=602868242]
-transform = Transform3D(10, 0, 0, 0, 0.5284383, 8.489717, 0, -0.84897166, 5.2843833, -13.408764, 14.461266, -7.193824)
 script = ExtResource("2_rampsurface")
-use_collision = true
-material = SubResource("ShaderMaterial_noarx")
-
-[node name="Ramp4" type="CSGBox3D" parent="." unique_id=645301887]
-transform = Transform3D(9.999999, 0, 0, 0, -4.3711385e-08, -9.999999, 0, 0.99999994, -4.3711384e-07, -13.408764, 5.3094645, -5.2013836)
-script = ExtResource("2_rampsurface")
-use_collision = true
-material = SubResource("ShaderMaterial_noarx")
-
-[node name="Ramp5" type="CSGBox3D" parent="." unique_id=1832282128]
-transform = Transform3D(58.141254, 0, 0, 0, 0.2592177, 21.715748, 0, 0.33386147, -16.860603, -86.10516, -53.81817, 6.601597)
-script = ExtResource("2_rampsurface")
-use_collision = true
-material = SubResource("ShaderMaterial_noarx")
-
-[node name="Ramp2" type="CSGBox3D" parent="." unique_id=87222236]
-transform = Transform3D(36.81682, -0.20658222, 3.3188825, 15.637189, 0.4863855, -7.8141093, 0, 0.8489717, 5.284383, -42.216515, -4.179264, -4.137393)
-script = ExtResource("2_rampsurface")
-use_collision = true
-material = SubResource("ShaderMaterial_noarx")
-
-[node name="Ramp3" type="CSGBox3D" parent="." unique_id=1471493043]
-transform = Transform3D(25.871592, 0.7626684, 0, -16.120928, 0.34178853, -8.489717, -25.899353, 0.5491062, 5.2843833, -79.71722, -25.417906, 12.44233)
-script = ExtResource("2_rampsurface")
-use_collision = true
-material = SubResource("ShaderMaterial_a0tk4")
 
 [node name="Schmeep" type="CharacterBody3D" parent="." unique_id=1731043971]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 9.585303, 0)
@@ -121,15 +110,35 @@ transform = Transform3D(1, 0, 0, 0, -4.371139e-08, 1, 0, -1, -4.371139e-08, 0, 9
 offset_right = 50.0
 offset_bottom = 23.0
 
-[node name="Ramp12" type="CSGBox3D" parent="." unique_id=747227960]
-transform = Transform3D(9.999999, 0, 0, 0, 0.9998579, -0.16854, 0, 0.016853899, 9.998579, -16.68877, 16.68172, -26.37132)
-script = ExtResource("2_rampsurface")
-use_collision = true
-material = SubResource("ShaderMaterial_noarx")
+[node name="Finish" type="Area3D" parent="." unique_id=221439306]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -138.65079, 11.582396, 0)
+script = ExtResource("4_r3fl7")
 
-[node name="Ramp6" type="CSGBox3D" parent="." unique_id=2069496280]
-transform = Transform3D(-0.28773072, 0.8486201, -5.282195, 0, 0.5284383, 8.489717, 9.99586, 0.024427494, -0.15204847, -8.596883, 11.556691, -27.909195)
-script = ExtResource("2_rampsurface")
-use_collision = true
-size = Vector3(0.89453125, 1, 1)
-material = SubResource("ShaderMaterial_noarx")
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Finish" unique_id=184336971]
+transform = Transform3D(10, 0, 0, 0, 10, 0, 0, 0, 10, -2.0878448, -0.17644787, 0)
+shape = SubResource("BoxShape3D_r3fl7")
+
+[node name="Coin" type="Area3D" parent="." unique_id=889571003]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -78.44222, 22.255747, -1.7563896)
+script = ExtResource("5_jka67")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Coin" unique_id=417748852]
+transform = Transform3D(10, 0, 0, 0, 10, 0, 0, 0, 10, -2.0878448, -0.17644787, 0)
+shape = SubResource("SphereShape3D_r3fl7")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Coin" unique_id=2099310784]
+transform = Transform3D(10, 0, 0, 0, 10, 0, 0, 0, 10, -2.1558075, -0.20245743, 0.033561826)
+mesh = SubResource("SphereMesh_lrbwi")
+surface_material_override/0 = SubResource("ShaderMaterial_jqnhf")
+
+[node name="Obstacle" type="Area3D" parent="." unique_id=622291141]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -67.54061, 22.255747, -1.7563896)
+script = ExtResource("6_i5arm")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Obstacle" unique_id=1845560995]
+transform = Transform3D(10, 0, 0, 0, 10, 0, 0, 0, 10, -2.0878448, -0.17644691, 1.5266051)
+shape = SubResource("BoxShape3D_lrbwi")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Obstacle" unique_id=1925352002]
+transform = Transform3D(10, 0, 0, 0, 10, 0, 0, 0, 10, -2.5661926, -0.17720795, 1.5925031)
+mesh = SubResource("BoxMesh_lrbwi")

@@ -1,3 +1,3 @@
 extends CSGBox3D
 
-@export var bounce: float = 2.0
+@export var bounce: float = 0.0

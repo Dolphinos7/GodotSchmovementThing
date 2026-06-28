@@ -17,8 +17,9 @@ var state: State = State.AIRBORNE
 var debug_wish_dir := Vector3.ZERO
 
 const SPEED = 5.0 # base ground walk speed
-const JUMP_VELOCITY = 9.0 # upward velocity applied on jump
-const AIR_ACCEL = 100.0 # how sharply turning redirects air velocity - surf servers crank this way up from Source's strict default for fast, sharp turns
+const JUMP_VELOCITY = 6.0 # upward velocity applied on jump - tuned down so bouncing off a ramp clearly beats it
+const DOUBLE_JUMP_VELOCITY = 9.0 # upward velocity applied on the one extra airborne jump
+const AIR_ACCEL = 300.0 # how sharply turning redirects air velocity - surf servers crank this way up from Source's strict default for fast, sharp turns
 const AIR_STRAFE_SPEED = 1.5 # cap on holding a static direction in air - must keep turning to gain more than this
 const DASH_SPEED = 12.0 # velocity impulse added in the dash direction
 const DASH_COOLDOWN = 3.0 # seconds before dash can be used again
@@ -26,9 +27,11 @@ const GROUND_FRICTION = 8.0 # rate excess ground speed (from a dash) bleeds towa
 const SLIDE_DURATION = 1.5 # seconds a slide stays active once triggered
 const SLIDE_COOLDOWN = 2.0 # seconds before slide can be triggered again
 const SLIDE_BUFFER_WINDOW = 0.5 # seconds an airborne slide press stays buffered, waiting for you to land
+const RAMP_BOUNCE_MULTIPLIER = 2.0 # scales a surface's PhysicsMaterial bounce (0-1, set per ramp in the Inspector) into the restitution used below
 
 var dash_cooldown := 0.0
 var can_air_dash := true
+var can_double_jump := true
 var is_sliding := false
 var slide_time_remaining := 0.0
 var slide_cooldown := 0.0
@@ -98,8 +101,12 @@ func _physics_process(delta: float) -> void:
 	_update_state()
 	_handle_slide(delta)
 
-	if Input.is_action_just_pressed("ui_accept") and state == State.GROUNDED:
-		velocity.y = JUMP_VELOCITY
+	if Input.is_action_just_pressed("ui_accept"):
+		if state == State.GROUNDED:
+			velocity.y = JUMP_VELOCITY
+		elif can_double_jump:
+			velocity.y = DOUBLE_JUMP_VELOCITY
+			can_double_jump = false
 
 	match state:
 		State.GROUNDED:
@@ -113,6 +120,7 @@ func _physics_process(delta: float) -> void:
 	_try_dash(direction, camera_basis, delta)
 
 	move_and_slide()
+	_bounce_off_ramps()
 	_update_debug_label()
 	_update_slide_ui()
 
@@ -121,6 +129,7 @@ func _update_state() -> void:
 	if is_on_floor():
 		state = State.GROUNDED
 		can_air_dash = true
+		can_double_jump = true
 		# Landed with a buffered slide press still alive - trigger it
 		# immediately instead of requiring a perfectly-timed second press.
 		if not was_grounded and slide_buffer_time_remaining > 0.0:
@@ -222,6 +231,44 @@ func _try_dash(wish_dir: Vector3, camera_basis: Basis, delta: float) -> void:
 	dash_cooldown = DASH_COOLDOWN
 	if state == State.AIRBORNE:
 		can_air_dash = false
+
+func _bounce_off_ramps() -> void:
+	# Only bounces off ramps you fly into from the air - state here still
+	# reflects whatever you were in at the start of this frame, before the
+	# move above, so this is "were you airborne when you hit the ramp."
+	if state != State.AIRBORNE:
+		return
+
+	for i in get_slide_collision_count():
+		var collision := get_slide_collision(i)
+		var normal: Vector3 = collision.get_normal()
+		if normal.angle_to(Vector3.UP) <= floor_max_angle:
+			continue # walkable floor, not a ramp face
+
+		# How fast you're moving *into* the surface (negative = into it).
+		# Default move_and_slide() just zeroes this component out so you
+		# slide along the surface - here it's reflected back out instead,
+		# so the whole velocity vector (not just Y) bounces off the ramp the
+		# way it physically would off a real ramp.
+		var into_normal_speed: float = velocity.dot(normal)
+		if into_normal_speed >= 0.0:
+			continue # already moving away from it, nothing to bounce
+
+		# Bounciness comes from a "bounce" value exported on whatever you hit
+		# (see RampSurface.gd) instead of one global value - level builders
+		# attach that script and set bounce per ramp. Anything without it
+		# (or with bounce left at 0) just doesn't bounce.
+		var bounce: float = 0.0
+		var collider: Object = collision.get_collider()
+		if collider:
+			var collider_bounce = collider.get("bounce")
+			if collider_bounce != null:
+				bounce = collider_bounce
+		if bounce <= 0.0:
+			continue
+
+		velocity -= normal * into_normal_speed * (1.0 + bounce * RAMP_BOUNCE_MULTIPLIER)
+		break
 
 func _held_keys_string() -> String:
 	var keys: Array[String] = []

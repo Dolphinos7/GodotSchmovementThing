@@ -29,6 +29,11 @@ transform = Transform3D(10, 0, 0, 0, 1, 0, 0, 0, 151.35776, 0, 6.7852335, 0)
 use_collision = true
 material = SubResource("ShaderMaterial_noarx")
 
+[node name="StartingPlatform3" type="CSGBox3D" parent="." unique_id=718337179]
+transform = Transform3D(-1.0998204, 0, -993.93353, 0, 1, 0, 9.939336, 0, -109.98203, -493.89655, 5.221443, 28.155228)
+use_collision = true
+material = SubResource("ShaderMaterial_noarx")
+
 [node name="StartingPlatform2" type="CSGBox3D" parent="." unique_id=998609187]
 transform = Transform3D(-0.01745386, 0.9999984, 0, -9.999985, -0.0017453859, 0, 0, 0, 151.35774, 4.286783, 6.7852335, 0)
 use_collision = true
@@ -97,7 +102,7 @@ shape = SubResource("CapsuleShape3D_gvi02")
 environment = SubResource("Environment_gvi02")
 
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=716343182]
-transform = Transform3D(1, 0, 0, 0, -4.371139e-08, 1, 0, -1, -4.371139e-08, 0, 16.21684, 0.0064697266)
+transform = Transform3D(1, 0, 0, 0, -4.371139e-08, 1, 0, -1, -4.371139e-08, 0, 94.52952, 0.0064697266)
 
 [node name="CanvasLayer" type="CanvasLayer" parent="." unique_id=1587303332]
 

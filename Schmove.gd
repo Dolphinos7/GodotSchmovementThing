@@ -2,36 +2,69 @@ extends CharacterBody3D
 
 @onready var debug_label: Label = $"../CanvasLayer/DebugText"
 
-enum State { GROUNDED, AIRBORNE, SURFING }
+# Built at runtime in _ready() instead of placed in the scene file - avoids
+# the editor's in-memory copy of the scene going stale if this script edits
+# the .tscn directly while it's open.
+var slide_tint: ColorRect
+var slide_cooldown_label: Label
+var dash_cooldown_label: Label
+
+enum State { GROUNDED, AIRBORNE }
 
 var mouse_sens = 0.3
 var camera_anglev=0
 var state: State = State.AIRBORNE
-
-# Ramp contact found during the *previous* move_and_slide() - collision data
-# isn't available until after a move, so this frame's state decision is based
-# on last frame's contact, same way is_on_floor() already works.
-var touching_ramp := false
-var ramp_normal := Vector3.ZERO
-var ramp_align := 0.0
-var prev_wish_tangent_dir := Vector3.ZERO
-var debug_wish_tangent_y := 0.0
-var debug_target_y := 0.0
 var debug_wish_dir := Vector3.ZERO
 
-const SPEED = 5.0
-const JUMP_VELOCITY = 9.0
-const AIR_ACCEL = 20.0
-const AIR_MAX_SPEED = 20.0
-const RAMP_STICK_FORCE = 0.5
-const RAMP_STEER_RATE = 10.0
-const RAMP_TANGENT_MIN = 0.05
-const RAMP_CLIMB_ACCEL = 4.0
-const RAMP_FLICK_BOOST = 1.0
+const SPEED = 5.0 # base ground walk speed
+const JUMP_VELOCITY = 9.0 # upward velocity applied on jump
+const AIR_ACCEL = 100.0 # how sharply turning redirects air velocity - surf servers crank this way up from Source's strict default for fast, sharp turns
+const AIR_STRAFE_SPEED = 1.5 # cap on holding a static direction in air - must keep turning to gain more than this
+const DASH_SPEED = 12.0 # velocity impulse added in the dash direction
+const DASH_COOLDOWN = 3.0 # seconds before dash can be used again
+const GROUND_FRICTION = 8.0 # rate excess ground speed (from a dash) bleeds toward SPEED while sliding
+const SLIDE_DURATION = 1.5 # seconds a slide stays active once triggered
+const SLIDE_COOLDOWN = 2.0 # seconds before slide can be triggered again
+const SLIDE_BUFFER_WINDOW = 0.5 # seconds an airborne slide press stays buffered, waiting for you to land
+
+var dash_cooldown := 0.0
+var can_air_dash := true
+var is_sliding := false
+var slide_time_remaining := 0.0
+var slide_cooldown := 0.0
+var slide_buffer_time_remaining := 0.0
 
 # Called when the node enters the scene tree for the first time.
 func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	_build_slide_ui()
+
+func _build_slide_ui() -> void:
+	var canvas_layer: CanvasLayer = $"../CanvasLayer"
+
+	slide_tint = ColorRect.new()
+	slide_tint.color = Color(0.0, 1.0, 0.0, 0.0)
+	slide_tint.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	slide_tint.set_anchors_preset(Control.PRESET_FULL_RECT)
+	canvas_layer.add_child(slide_tint)
+
+	slide_cooldown_label = Label.new()
+	slide_cooldown_label.text = "SLIDE READY"
+	slide_cooldown_label.add_theme_font_size_override("font_size", 24)
+	slide_cooldown_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	slide_cooldown_label.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	slide_cooldown_label.position = Vector2(-80.0, 20.0)
+	slide_cooldown_label.size = Vector2(160.0, 30.0)
+	canvas_layer.add_child(slide_cooldown_label)
+
+	dash_cooldown_label = Label.new()
+	dash_cooldown_label.text = "DASH READY"
+	dash_cooldown_label.add_theme_font_size_override("font_size", 24)
+	dash_cooldown_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	dash_cooldown_label.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	dash_cooldown_label.position = Vector2(-80.0, 50.0)
+	dash_cooldown_label.size = Vector2(160.0, 30.0)
+	canvas_layer.add_child(dash_cooldown_label)
 
 # Called every frame. 'delta' is the elapsed time since the previous frame.
 func _process(delta: float) -> void:
@@ -51,49 +84,95 @@ func _physics_process(delta: float) -> void:
 	# Get the input direction.
 	# As good practice, you should replace UI actions with custom gameplay actions.
 	var input_dir := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
+
+	# Wish direction follows your held key combo rotated by view yaw only -
+	# no pitch. This is what makes CS-style air strafing work: looking
+	# up/down should never weaken or tilt your horizontal wish direction,
+	# only turning left/right (yaw) does, since that's what _air_accelerate
+	# measures against your current velocity to gain speed off a turn.
 	var direction := (transform.basis * Vector3(input_dir.x, 0, input_dir.y)).normalized()
+	debug_wish_dir = direction
 
 	var camera_basis: Basis = ($Schmeepera as Node3D).global_transform.basis
 
-	# Wish direction follows the actual input combo (camera basis with pitch
-	# included) - used by both air strafing and surf-state ramp interaction.
-	var air_wish_dir := Vector3.ZERO
-	if input_dir:
-		air_wish_dir = (camera_basis * Vector3(input_dir.x, 0, input_dir.y)).normalized()
-	debug_wish_dir = air_wish_dir
-
 	_update_state()
+	_handle_slide(delta)
 
 	if Input.is_action_just_pressed("ui_accept") and state == State.GROUNDED:
 		velocity.y = JUMP_VELOCITY
 
 	match state:
 		State.GROUNDED:
-			_process_grounded(direction)
+			_process_grounded(direction, delta)
 		State.AIRBORNE:
-			_process_airborne(air_wish_dir, delta)
-		State.SURFING:
-			_process_surfing(air_wish_dir, delta)
+			_process_airborne(direction, delta)
+
+	# Applied after the state-specific movement above, not before - grounded
+	# movement overwrites velocity.x/z outright, which would erase a dash
+	# impulse added any earlier in the frame.
+	_try_dash(direction, camera_basis, delta)
 
 	move_and_slide()
-	_scan_for_ramp_contact(air_wish_dir)
 	_update_debug_label()
+	_update_slide_ui()
 
 func _update_state() -> void:
-	if touching_ramp:
-		state = State.SURFING
-	elif is_on_floor():
+	var was_grounded: bool = state == State.GROUNDED
+	if is_on_floor():
 		state = State.GROUNDED
+		can_air_dash = true
+		# Landed with a buffered slide press still alive - trigger it
+		# immediately instead of requiring a perfectly-timed second press.
+		if not was_grounded and slide_buffer_time_remaining > 0.0:
+			_start_slide()
 	else:
 		state = State.AIRBORNE
 
-func _process_grounded(direction: Vector3) -> void:
-	if direction:
-		velocity.x = direction.x * SPEED
-		velocity.z = direction.z * SPEED
+func _handle_slide(delta: float) -> void:
+	slide_cooldown = max(slide_cooldown - delta, 0.0)
+	slide_buffer_time_remaining = max(slide_buffer_time_remaining - delta, 0.0)
+
+	if Input.is_action_just_pressed("slide"):
+		if state == State.GROUNDED:
+			_start_slide()
+		else:
+			# Not grounded yet - buffer the press so landing within the
+			# window triggers it automatically, instead of the press just
+			# being dropped.
+			slide_buffer_time_remaining = SLIDE_BUFFER_WINDOW
+
+	if is_sliding:
+		slide_time_remaining -= delta
+		if slide_time_remaining <= 0.0 or state == State.AIRBORNE:
+			is_sliding = false
+
+func _start_slide() -> void:
+	if slide_cooldown > 0.0:
+		return
+	is_sliding = true
+	slide_time_remaining = SLIDE_DURATION
+	slide_cooldown = SLIDE_COOLDOWN
+	slide_buffer_time_remaining = 0.0
+
+func _process_grounded(direction: Vector3, delta: float) -> void:
+	var horizontal_speed: float = Vector2(velocity.x, velocity.z).length()
+	var target_speed: float = SPEED if direction else 0.0
+
+	var new_speed: float
+	if not is_sliding or horizontal_speed <= SPEED:
+		# Normal walking/stopping - snap straight to target, same as before.
+		# Also applies if you're carrying excess speed but aren't sliding -
+		# that's what makes dashing without sliding a non-event on the ground.
+		new_speed = target_speed
 	else:
-		velocity.x = move_toward(velocity.x, 0, SPEED)
-		velocity.z = move_toward(velocity.z, 0, SPEED)
+		# Sliding and carrying more speed than base walk allows (e.g. just
+		# dashed) - bleed the excess off gradually via friction instead of
+		# snapping back down to walk speed instantly.
+		new_speed = move_toward(horizontal_speed, target_speed, GROUND_FRICTION * delta)
+
+	var horizontal_dir: Vector3 = direction if direction else Vector3(velocity.x, 0, velocity.z).normalized()
+	velocity.x = horizontal_dir.x * new_speed
+	velocity.z = horizontal_dir.z * new_speed
 
 func _process_airborne(wish_dir: Vector3, delta: float) -> void:
 	velocity += get_gravity() * delta
@@ -102,104 +181,47 @@ func _process_airborne(wish_dir: Vector3, delta: float) -> void:
 func _air_accelerate(wish_dir: Vector3, delta: float) -> void:
 	if not wish_dir:
 		return
+
+	# current_speed is your velocity's component along wish_dir right now.
+	# Holding a static wish_dir (not turning) means current_speed quickly
+	# rises to meet AIR_STRAFE_SPEED and add_speed hits zero - acceleration
+	# stops dead. The only way to keep add_speed positive is to keep
+	# changing wish_dir (turning the camera), which keeps its dot product
+	# with your existing velocity low even though your actual speed is high.
 	var current_speed: float = velocity.dot(wish_dir)
-	var add_speed: float = clamp(AIR_MAX_SPEED - current_speed, 0.0, AIR_ACCEL * delta)
-	velocity += wish_dir * add_speed
-
-func _process_surfing(wish_dir: Vector3, delta: float) -> void:
-	# Gravity still pulls; the surf logic below decides how much survives.
-	velocity += get_gravity() * delta
-
-	# Strip only the into-surface component, keeping whatever tangential
-	# momentum you already had - touching a wall never discards speed you'd
-	# already built up, even if your current aim has no forward lean at all.
-	velocity -= ramp_normal * velocity.dot(ramp_normal)
-
-	# Keep a small bias pressed into the surface so next frame's
-	# move_and_slide() still registers contact - a purely tangential
-	# velocity can graze the ramp without re-triggering a collision, which
-	# is what was causing the surf/airborne state flicker.
-	velocity -= ramp_normal * RAMP_STICK_FORCE
-
-	if not wish_dir:
-		prev_wish_tangent_dir = Vector3.ZERO
-		debug_wish_tangent_y = 0.0
-		debug_target_y = 0.0
+	var add_speed: float = AIR_STRAFE_SPEED - current_speed
+	if add_speed <= 0.0:
 		return
 
-	var wish_tangent: Vector3 = wish_dir - ramp_normal * wish_dir.dot(ramp_normal)
-	debug_wish_tangent_y = wish_tangent.y
-	if wish_tangent.length() < RAMP_TANGENT_MIN:
-		# No meaningful lean along the surface at all (aiming dead-on
-		# perpendicular) - nothing to steer toward, so hover instead of
-		# steering toward a noisy near-zero direction.
-		velocity.y = 0.0
-		prev_wish_tangent_dir = Vector3.ZERO
-		debug_target_y = 0.0
+	var accel_speed: float = min(AIR_ACCEL * AIR_STRAFE_SPEED * delta, add_speed)
+	velocity += wish_dir * accel_speed
+
+func _try_dash(wish_dir: Vector3, camera_basis: Basis, delta: float) -> void:
+	dash_cooldown = max(dash_cooldown - delta, 0.0)
+	if dash_cooldown > 0.0:
+		return
+	if state == State.AIRBORNE and not can_air_dash:
+		return
+	if not Input.is_action_just_pressed("dash"):
 		return
 
-	# Steer the conserved speed toward wherever your aim projects onto the
-	# ramp surface - gradual, not instant, so turning into/along the slope
-	# redirects momentum into a climb. This is the only place vertical
-	# velocity changes while leaning into a climb, so it's no longer fighting
-	# a separate damping step every frame.
-	var speed: float = velocity.length()
-	if speed < 0.01:
+	# Dash toward whatever direction you're currently trying to move in;
+	# fall back to camera-forward if no movement key is held. Always
+	# flattened - this is a horizontal dash, vertical velocity is untouched.
+	var dash_dir: Vector3 = wish_dir if wish_dir else -camera_basis.z
+	dash_dir.y = 0.0
+	if not dash_dir:
 		return
-	var steer_weight: float = clamp(RAMP_STEER_RATE * delta, 0.0, 1.0)
-	var new_dir: Vector3 = velocity.normalized().slerp(wish_tangent.normalized(), steer_weight)
-	var target: Vector3 = new_dir * speed
+	dash_dir = dash_dir.normalized()
 
-	# No static angle ever climbs - holding steady only ever trends toward
-	# flat (dead-on, align=1) or descending (leaning away, align->0 at the
-	# gate edge). align^2 - 1 is 0 at dead-on and increasingly negative the
-	# further you lean, so the baseline never pulls you upward on its own.
-	var climb_bias: float = ramp_align * ramp_align - 1.0
-	target.y = climb_bias * speed
-	debug_target_y = target.y
-
-	# How fast your aim itself is rotating (radians/sec) - this is the only
-	# source of upward motion. Holding a steady angle (turn_rate ~ 0) just
-	# follows the baseline above; a sharp flick converts existing speed into
-	# a direct upward kick, like using your momentum to jump off the ramp.
-	var wish_tangent_dir: Vector3 = wish_tangent.normalized()
-	var turn_rate: float = 0.0
-	if prev_wish_tangent_dir and delta > 0.0:
-		turn_rate = prev_wish_tangent_dir.angle_to(wish_tangent_dir) / delta
-	prev_wish_tangent_dir = wish_tangent_dir
-
-	velocity.x = target.x
-	velocity.z = target.z
-	velocity.y = move_toward(velocity.y, target.y, RAMP_CLIMB_ACCEL * delta)
-	velocity.y += turn_rate * speed * RAMP_FLICK_BOOST * delta
-
-func _scan_for_ramp_contact(wish_dir: Vector3) -> void:
-	touching_ramp = false
-	ramp_normal = Vector3.ZERO
-	ramp_align = 0.0
-	if not wish_dir:
-		return # not holding any key at all - never counts as surfing
-
-	for i in get_slide_collision_count():
-		var collision := get_slide_collision(i)
-		var normal := collision.get_normal()
-		if normal.angle_to(Vector3.UP) <= floor_max_angle:
-			continue # walkable floor, not a ramp face
-
-		# Only "stick" if you're actually pushing into the surface (full 3D,
-		# not flattened) - holding away from it should just fall back to
-		# plain air strafing, not be governed by surf logic at all.
-		if wish_dir.dot(normal) >= 0.0:
-			continue
-
-		touching_ramp = true
-		ramp_normal = normal
-
-		var flat_wish: Vector3 = Vector3(wish_dir.x, 0, wish_dir.z)
-		var flat_normal: Vector3 = Vector3(normal.x, 0, normal.z)
-		if flat_wish and flat_normal:
-			ramp_align = flat_wish.normalized().dot(-flat_normal.normalized())
-		break
+	# Added to existing velocity rather than overwriting it, so a dash
+	# composes with whatever momentum you're already carrying instead of
+	# resetting it.
+	velocity.x += dash_dir.x * DASH_SPEED
+	velocity.z += dash_dir.z * DASH_SPEED
+	dash_cooldown = DASH_COOLDOWN
+	if state == State.AIRBORNE:
+		can_air_dash = false
 
 func _held_keys_string() -> String:
 	var keys: Array[String] = []
@@ -219,13 +241,25 @@ func _update_debug_label() -> void:
 	var input_line: String = "keys %s  wish (%.2f, %.2f, %.2f)" % [
 		_held_keys_string(), debug_wish_dir.x, debug_wish_dir.y, debug_wish_dir.z
 	]
+	var slide_line: String = "sliding %s  slide_cd %.2f  buffer %.2f  speed %.2f" % [
+		str(is_sliding), slide_cooldown, slide_buffer_time_remaining,
+		Vector2(velocity.x, velocity.z).length()
+	]
 	match state:
 		State.GROUNDED:
-			debug_label.text = "State: GROUNDED\n%s" % input_line
+			debug_label.text = "State: GROUNDED\n%s\n%s" % [input_line, slide_line]
 		State.AIRBORNE:
-			debug_label.text = "State: AIRBORNE\n%s" % input_line
-		State.SURFING:
-			debug_label.text = "State: SURFING\n%s\nalign %.2f  vel.y %.2f\nwish_tangent.y %.2f  target.y %.2f\nnormal (%.2f, %.2f, %.2f)" % [
-				input_line, ramp_align, velocity.y, debug_wish_tangent_y, debug_target_y,
-				ramp_normal.x, ramp_normal.y, ramp_normal.z
-			]
+			debug_label.text = "State: AIRBORNE\n%s\n%s" % [input_line, slide_line]
+
+func _update_slide_ui() -> void:
+	slide_tint.color = Color(0.0, 1.0, 0.0, 0.18 if is_sliding else 0.0)
+
+	if slide_cooldown <= 0.0:
+		slide_cooldown_label.text = "SLIDE READY"
+	else:
+		slide_cooldown_label.text = "SLIDE: %.1fs" % slide_cooldown
+
+	if dash_cooldown <= 0.0:
+		dash_cooldown_label.text = "DASH READY"
+	else:
+		dash_cooldown_label.text = "DASH: %.1fs" % dash_cooldown
